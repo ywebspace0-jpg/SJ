@@ -81,6 +81,7 @@
   .chip.secmatch{color:var(--teal);background:var(--teal-soft);border-color:var(--teal-line);font-weight:600}
   .chip.cert{color:var(--teal);background:var(--teal-soft);border-color:var(--teal-line)}
   .chip.page{color:var(--amber);background:var(--amber-soft);border-color:var(--amber-line)}
+  .chip.doc{color:var(--ink);background:var(--paper)}
   .chip.no{color:var(--faint);background:transparent;border-style:dashed}
   .chip a{color:inherit;text-decoration:none;border-bottom:1px solid currentColor}
   .r-amt{text-align:right;white-space:nowrap;padding-top:1px}
@@ -174,10 +175,11 @@
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSlydOrhFTcP9fXbyziVvrtzWaoBgcpMnKRrqJqiKyMY_XIYes6P_dQssrBk2hoSO7ck8vzCkgPCLTu/pub?gid=987729029&single=true&output=csv";
 /* ▲▲▲ 위 한 줄만 ▲▲▲ */
 
+/* 고정 항목 매핑. 이 외에 '○○링크'로 끝나는 칸은 무엇이든 자동으로
+   '○○ 보기' 첨부 버튼이 됩니다 (계약서링크, 준공계링크 등 자유롭게 추가 가능). */
 const COLMAP = {
   "사업명":"title","발주처":"client","발주처유형":"sector","계약금액(원)":"amount",
-  "수행시작":"start","수행종료":"end","과업유형":"type",
-  "실적증명서링크":"certLink","제안서페이지링크":"pageLink","한줄설명":"note"
+  "수행시작":"start","수행종료":"end","과업유형":"type","한줄설명":"note"
 };
 const TODAY = new Date();
 const state = {mode:"doc",type:"전체",period:"전체",rangeFrom:"",rangeTo:"",amount:null,sector:"전체",count:10};
@@ -195,10 +197,15 @@ function periodOK(r){const p=state.period;if(p==="전체")return true;
   return r.end>=recentCutoff({"최근 2년":2,"최근 3년":3,"최근 5년":5}[p]);}
 
 function mapRow(obj){
-  const r={};
-  for(const k in obj){const key=COLMAP[(k||"").trim()];if(key)r[key]=(obj[k]||"").trim();}
+  const r={docs:[]};
+  for(const k in obj){
+    const key=(k||"").trim(), val=(obj[k]||"").trim();
+    if(COLMAP[key]){ r[COLMAP[key]]=val; }
+    else if(/링크$/.test(key) && val){ r.docs.push({label:key.replace(/링크$/,"").trim(), url:val}); }
+  }
   r.amount=toNum(r.amount);r.start=normMonth(r.start);r.end=normMonth(r.end);
-  r.cert=!!r.certLink;r.page=!!r.pageLink;r.sector=r.sector||"기타";r.type=r.type||"기타";
+  r.sector=r.sector||"기타";r.type=r.type||"기타";
+  r.cert=r.docs.some(d=>d.label.includes("증명서"));  // 서류용 필터: 실적증명서 보유 여부
   return r;
 }
 
@@ -261,15 +268,18 @@ function render(){
   if(total===0){list.innerHTML=`<div class="msg"><h3>조건에 맞는 실적이 없어요</h3>
     <p>기간을 넓히거나${state.mode==="doc"?", ‘제안서용’으로 바꾸거나":""} 과업유형을 ‘전체’로 해보세요.</p></div>`;return;}
 
+  const docChip=d=>{
+    const cls=d.label.includes("증명서")?"cert":(d.label.includes("제안서")?"page":"doc");
+    return `<span class="chip ${cls}">✓ ${d.label} <a href="${d.url}" target="_blank" rel="noopener">보기</a></span>`;
+  };
+
   let html="";
   rows.forEach((r,i)=>{
     const picked=i<N;
     if(i===N)html+=`<div class="cutline">여기까지 ${N}건 · ${pickLabel} — 아래는 예비</div>`;
-    const link=(u,label,cls)=>`<span class="chip ${cls}">✓ ${label} <a href="${u}" target="_blank" rel="noopener">보기</a></span>`;
-    const certChip=r.cert?link(r.certLink,"실적증명서","cert"):`<span class="chip no">실적증명서 없음</span>`;
-    const pageChip=r.page?link(r.pageLink,"제안서 페이지","page"):`<span class="chip no">페이지 없음</span>`;
     const secOn=state.mode==="proposal"&&state.sector!=="전체";
     const sectorChip=secOn&&r.secMatch?`<span class="chip secmatch">◎ ${r.sector} 일치</span>`:`<span class="chip sector">${r.sector}</span>`;
+    const docsHtml=r.docs.length?r.docs.map(docChip).join(""):`<span class="chip no">첨부 없음</span>`;
     const rightTag=state.mode==="doc"&&state.amount!==null?(r.meets?`<span class="meet">금액 충족</span>`:`<span class="miss">기준 미달</span>`):"";
     html+=`<div class="row ${picked?'picked':'backup'}">
       <div class="rank">${picked?(i+1):"예비"}</div>
@@ -277,7 +287,7 @@ function render(){
         <div class="r-title">${r.title}</div>
         <div class="r-meta">${r.client}<span class="dot">·</span>${ym(r.start)}–${ym(r.end)}</div>
         <div class="r-note">${r.note||""}</div>
-        <div class="chips"><span class="chip type">${r.type}</span>${sectorChip}${certChip}${pageChip}</div>
+        <div class="chips"><span class="chip type">${r.type}</span>${sectorChip}${docsHtml}</div>
       </div>
       <div class="r-amt"><div class="won">${won(r.amount)}</div><div class="cmp">${compact(r.amount)}</div>${rightTag}</div>
     </div>`;
@@ -304,15 +314,14 @@ function showSetup(){
     <h3>구글 시트를 연결하면 시작됩니다</h3>
     <ol>
       <li>구글 시트에서 <code>파일 → 공유 → 웹에 게시</code></li>
-      <li><b>실적DB</b> 탭 선택 + <b>쉼표로 구분된 값(.csv)</b> 형식 → <b>게시</b></li>
-      <li>나온 링크를 복사</li>
-      <li>이 파일 위쪽 <code>SHEET_CSV_URL = ""</code> 의 따옴표 안에 붙여넣고 저장</li>
+      <li><b>실적DB</b> 탭 + <b>쉼표로 구분된 값(.csv)</b> → <b>게시</b></li>
+      <li>나온 링크를 이 파일 위쪽 <code>SHEET_CSV_URL = ""</code> 따옴표 안에 붙여넣기</li>
     </ol></div>`;
 }
 function showError(){
   document.getElementById("statusTag").outerHTML=`<span class="tag warn" id="statusTag">불러오기 실패</span>`;
   document.getElementById("list").innerHTML=`<div class="msg err"><h3>데이터를 불러오지 못했어요</h3>
-    <p>시트가 <b>웹에 게시(CSV)</b> 되어 있는지, 링크가 정확한지 확인해 주세요. (게시 직후엔 몇 분 걸릴 수 있어요.)</p></div>`;
+    <p>시트가 <b>웹에 게시(CSV)</b> 되어 있는지, 링크가 정확한지 확인해 주세요. (로컬 파일로 열면 막힐 수 있어요 — 웹주소로 여세요.)</p></div>`;
 }
 function loadData(){
   if(!SHEET_CSV_URL){showSetup();return;}
