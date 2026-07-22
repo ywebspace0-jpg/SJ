@@ -33,6 +33,10 @@
   .tag.warn{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line)}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;
     box-shadow:var(--shadow);padding:18px;margin-bottom:20px;}
+.searchbar{display:flex;align-items:center;gap:8px;background:var(--paper);border:1px solid var(--line);
+    border-radius:10px;padding:0 12px;margin-bottom:14px}
+  .searchbar .mag{color:var(--faint);font-size:14px}
+  .searchbar input{border:none;background:transparent;padding:11px 0;font-size:14px;width:100%;outline:none;font-family:inherit;color:var(--ink)}
   .modes{display:flex;gap:6px;background:var(--paper);border:1px solid var(--line);
     border-radius:10px;padding:4px;margin-bottom:18px}
   .mode-btn{flex:1;border:none;background:none;cursor:pointer;padding:9px 10px;border-radius:7px;
@@ -123,6 +127,8 @@
   </header>
 
   <div class="panel" id="panel" style="display:none">
+    <div class="searchbar"><span class="mag">🔎</span>
+      <input type="search" id="q" placeholder="사업명·발주처·키워드로 검색 (예: 유튜브, 경기도)"></div>
     <div class="modes" id="modes">
       <button class="mode-btn on" data-mode="doc">서류용<span class="desc">정량 제출 · 금액과 건수로</span></button>
       <button class="mode-btn" data-mode="proposal">제안서용<span class="desc">본문 삽입 · 내용(발주처)으로</span></button>
@@ -182,7 +188,7 @@ const COLMAP = {
   "수행시작":"start","수행종료":"end","과업유형":"type","한줄설명":"note"
 };
 const TODAY = new Date();
-const state = {mode:"doc",type:"전체",period:"전체",rangeFrom:"",rangeTo:"",amount:null,sector:"전체",count:10};
+const state = {mode:"doc",type:"전체",period:"전체",rangeFrom:"",rangeTo:"",amount:null,sector:"전체",count:10,q:""};
 let DATA = [];
 
 const won = n => "₩"+n.toLocaleString("ko-KR");
@@ -195,6 +201,9 @@ function recentCutoff(n){const y=TODAY.getFullYear()-n,m=String(TODAY.getMonth()
 function periodOK(r){const p=state.period;if(p==="전체")return true;
   if(p==="직접 지정"){if(state.rangeFrom&&r.end<state.rangeFrom)return false;if(state.rangeTo&&r.end>state.rangeTo)return false;return true;}
   return r.end>=recentCutoff({"최근 2년":2,"최근 3년":3,"최근 5년":5}[p]);}
+function kwOK(r){const q=(state.q||"").trim().toLowerCase();if(!q)return true;
+  const hay=(r.title+" "+r.client+" "+(r.note||"")+" "+r.sector+" "+r.type).toLowerCase();
+  return q.split(/\s+/).every(t=>hay.includes(t));}
 
 function mapRow(obj){
   const r={docs:[]};
@@ -210,7 +219,7 @@ function mapRow(obj){
 }
 
 function compute(){
-  let rows=DATA.filter(r=>(state.type==="전체"||r.type===state.type)&&periodOK(r));
+  let rows=DATA.filter(r=>(state.type==="전체"||r.type===state.type)&&periodOK(r)&&kwOK(r));
   if(state.mode==="doc"){
     rows=rows.filter(r=>r.cert);const base=state.amount;
     rows=rows.map(r=>({...r,meets:base?r.amount>=base:null}));
@@ -258,6 +267,7 @@ function render(){
 
   let parts=[`<strong>${state.type}</strong>`,modeLabel];
   const pl=periodLabel();if(pl)parts.push(pl);
+  if((state.q||"").trim())parts.push(`검색 “${state.q.trim()}”`);
   if(state.mode==="doc"&&state.amount)parts.push(`기준 ${compact(state.amount)} 이상`);
   if(state.mode==="proposal"&&state.sector!=="전체")parts.push(`발주처 ${state.sector}`);
   const total=rows.length,pickCount=Math.min(N,total);
@@ -298,6 +308,7 @@ function render(){
 function bind(){
   document.getElementById("modes").addEventListener("click",e=>{const b=e.target.closest(".mode-btn");if(!b)return;
     document.querySelectorAll(".mode-btn").forEach(x=>x.classList.remove("on"));b.classList.add("on");state.mode=b.dataset.mode;render();});
+  document.getElementById("q").addEventListener("input",e=>{state.q=e.target.value;render();});
   document.getElementById("type").addEventListener("change",e=>{state.type=e.target.value;render();});
   document.getElementById("period").addEventListener("change",e=>{state.period=e.target.value;render();});
   document.getElementById("rangeFrom").addEventListener("input",e=>{state.rangeFrom=e.target.value;render();});
